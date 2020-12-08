@@ -242,7 +242,7 @@ filex/common/src/fxe_unicode_name_get_extended.c
 filex/common/src/fxe_unicode_short_name_get.c
 filex/common/src/fxe_unicode_short_name_get_extended.c
 ''')
-CPPPATH = [cwd + '/inc']
+CPPPATH = [cwd + '/filex/inc']
 LOCAL_CCFLAGS = ''
 
 CPPDEFINES = ['FX_INCLUDE_USER_DEFINE_FILE']
