@@ -1,0 +1,3 @@
+[submodule "filex"]
+	path = filex
+	url = https://github.com/azure-rtos/filex.git
