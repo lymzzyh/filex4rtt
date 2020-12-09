@@ -4,6 +4,7 @@
 static size_t rt_disk_erase(rt_device_t disk_dev, off_t block_off, size_t number_of_block)
 {
     size_t size;
+    if(number_of_block == 0)return 0;
     switch (disk_dev->type)
     {
     
@@ -23,9 +24,10 @@ static size_t rt_disk_erase(rt_device_t disk_dev, off_t block_off, size_t number
     }
 }
 
-static size_t rt_disk_write(rt_device_t disk_dev, off_t block_off, size_t number_of_block, const void * buffer)
+static size_t rt_disk_write(rt_device_t disk_dev, off_t block_off, const void * buffer, size_t number_of_block)
 {
     size_t size;
+    if(number_of_block == 0)return 0;
     switch (disk_dev->type)
     {
 #ifdef RT_MTD_NOR_DEVICE
@@ -46,11 +48,13 @@ static size_t rt_disk_write(rt_device_t disk_dev, off_t block_off, size_t number
     default:
         RT_ASSERT("Not Support disk device" == 0);
     }
+    return 0;
 }
 
-static size_t rt_disk_read(rt_device_t disk_dev, off_t block_off, size_t number_of_block, void * buffer)
+static size_t rt_disk_read(rt_device_t disk_dev, off_t block_off, void * buffer, size_t number_of_block)
 {
     size_t size;
+    if(number_of_block == 0)return 0;
     switch (disk_dev->type)
     {
 #ifdef RT_MTD_NOR_DEVICE
@@ -67,6 +71,7 @@ static size_t rt_disk_read(rt_device_t disk_dev, off_t block_off, size_t number_
     default:
         RT_ASSERT("Not Support disk device" == 0);
     }
+    return 0;
 }
 
 
@@ -221,10 +226,6 @@ VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr)
 
         /* Successful driver request.  */
         media_ptr -> fx_media_driver_status =  FX_SUCCESS;
-        if(rt_device_open(disk_dev, RT_DEVICE_FLAG_RDWR) != RT_EOK)
-        {
-            media_ptr -> fx_media_driver_status =  FX_IO_ERROR;
-        }
         break;
     }
 
@@ -236,10 +237,6 @@ VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr)
 
         /* Successful driver request.  */
         media_ptr -> fx_media_driver_status =  FX_SUCCESS;
-        if(rt_device_close(disk_dev) != RT_EOK)
-        {
-            media_ptr -> fx_media_driver_status =  FX_IO_ERROR;
-        }
         break;
     }
 

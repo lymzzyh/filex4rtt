@@ -12,6 +12,18 @@
 
 extern VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr);
 
+static rt_mutex_t lock = NULL;
+
+static inline filex_lock(void)
+{
+    rt_mutex_take(lock, RT_WAITING_FOREVER);
+}
+
+static inline filex_unlock(void)
+{
+    rt_mutex_release(lock);
+}
+
 #ifndef FLIEX_MEDIA_MEMORY_SIZE
 #define FLIEX_MEDIA_MEMORY_SIZE 512     /* Size */
 #endif /* FLIEX_MEDIA_MEMORY_SIZE */
@@ -19,14 +31,16 @@ extern VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr);
 typedef struct filex_media {
     rt_list_t list;
     FX_MEDIA media;
-    char media_memory[FLIEX_MEDIA_MEMORY_SIZE];
+    unsigned char media_memory[FLIEX_MEDIA_MEMORY_SIZE];
 #ifdef FX_ENABLE_FAULT_TOLERANT
-    char fault_tolerant_memory[FLIEX_MEDIA_MEMORY_SIZE];
+    unsigned char fault_tolerant_memory[FLIEX_MEDIA_MEMORY_SIZE];
 #endif
 } filex_media_t;
 
 typedef struct filex_dir {
     FX_DIR_ENTRY entry;
+    char name_buffer[FX_MAX_LONG_NAME_LEN];
+    int is_root;
     FX_MEDIA * media;
 } filex_dir_t;
 
@@ -36,14 +50,17 @@ static filex_media_t * _filex_get_media(rt_device_t dev_id)
 {
     rt_list_t * entry;
     filex_media_t * media;
+    filex_lock();
     for(entry = filex_media_list.next; entry->next != &filex_media_list; entry = entry->next) 
     {
         media = rt_list_entry(entry, filex_media_t, list);
         if(media->media.fx_media_driver_info == dev_id)
         {
+            filex_unlock();
             return media;
         }
     }
+    filex_unlock();
     return NULL;
 }
 
@@ -93,6 +110,7 @@ static int _filex_result_to_dfs(int result)
         break; // Corrupted
 
     default:
+        status = -result;
         break;
     }
 
@@ -121,11 +139,12 @@ static int _dfs_filex_mount(struct dfs_filesystem* dfs, unsigned long rwflag, co
         {
             return -ENOMEM;
         }
+        filex_lock();
         rt_list_insert_before(&filex_media_list, &filex_media->list);
+        filex_unlock();
     }
-
+    filex_lock();
     result =  fx_media_open(&filex_media->media, dev_id->parent.name, rt_fx_disk_driver, dev_id, filex_media->media_memory, sizeof(filex_media->media_memory));
-
     /* Check the media open status.  */
     if (result != FX_SUCCESS)
     {
@@ -133,10 +152,12 @@ static int _dfs_filex_mount(struct dfs_filesystem* dfs, unsigned long rwflag, co
         /* Error, break the loop!  */
         rt_list_remove(&filex_media->list);
         free(filex_media);
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 
     dfs->data = filex_media;
+    filex_unlock();
 
     return RT_EOK;
 }
@@ -148,6 +169,7 @@ static int _dfs_filex_unmount(struct dfs_filesystem* dfs)
 
     RT_ASSERT(dfs != RT_NULL);
     RT_ASSERT(dfs->data != RT_NULL);
+    filex_lock();
 
     filex_media = (filex_media_t*)dfs->data;
     result =  fx_media_close(&filex_media->media);
@@ -158,7 +180,7 @@ static int _dfs_filex_unmount(struct dfs_filesystem* dfs)
         rt_list_remove(&filex_media->list);
         free(filex_media);
     }
-
+    filex_unlock();
     return _filex_result_to_dfs(result);
 }
 
@@ -182,14 +204,16 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
         rt_kprintf("The memory device type must be MTD or Block!\n");
         return -EINVAL;
     }
-
+    filex_lock();
     switch(dev_id->type)
     {
+#ifdef RT_MTD_NOR_DEVICE
     case RT_Device_Class_MTD:
         sectors_count = RT_MTD_NOR_DEVICE(dev_id)->block_start - RT_MTD_NOR_DEVICE(dev_id)->block_end;
         sectors_begin = RT_MTD_NOR_DEVICE(dev_id)->block_start;
         sectors_size = RT_MTD_NOR_DEVICE(dev_id)->block_size;
         break;
+#endif
     case RT_Device_Class_Block:
         {
             struct rt_device_blk_geometry geometry;
@@ -200,6 +224,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
             if( result != RT_EOK )
             {
                 rt_kprintf("device : %s cmd RT_DEVICE_CTRL_BLK_GETGEOME failed.\r\n");
+                filex_unlock();
                 return result;
             }
             sectors_count = geometry.sector_count;
@@ -208,6 +233,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
             break;
         }
     default:
+        filex_unlock();
         return -EINVAL;
     }
     filex_media = _filex_get_media(dev_id);
@@ -216,6 +242,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
         filex_media = malloc(sizeof(filex_media_t));
         if(filex_media == NULL) 
         {
+            filex_unlock();
             return -ENOMEM;
         }
         rt_list_insert_before(&filex_media_list, &filex_media->list);
@@ -242,6 +269,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
         /* Error, break the loop!  */
         rt_list_remove(&filex_media->list);
         free(filex_media);
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 
@@ -256,7 +284,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
             free(filex_media);
         }
 #endif /* FX_ENABLE_FAULT_TOLERANT */
-
+    filex_unlock();
     return _filex_result_to_dfs(result);
     
 }
@@ -279,14 +307,16 @@ static int _dfs_filex_exfat_mkfs(rt_device_t dev_id)
         rt_kprintf("The memory device type must be MTD or Block!\n");
         return -EINVAL;
     }
-
+    filex_lock();
     switch(dev_id->type)
     {
+#ifdef RT_MTD_NOR_DEVICE
     case RT_Device_Class_MTD:
         sectors_count = RT_MTD_NOR_DEVICE(dev_id)->block_start - RT_MTD_NOR_DEVICE(dev_id)->block_end;
         sectors_begin = RT_MTD_NOR_DEVICE(dev_id)->block_start;
         sectors_size = RT_MTD_NOR_DEVICE(dev_id)->block_size;
         break;
+#endif
     case RT_Device_Class_Block:
         {
             struct rt_device_blk_geometry geometry;
@@ -297,6 +327,7 @@ static int _dfs_filex_exfat_mkfs(rt_device_t dev_id)
             if( result != RT_EOK )
             {
                 rt_kprintf("device : %s cmd RT_DEVICE_CTRL_BLK_GETGEOME failed.\r\n");
+                filex_unlock();
                 return result;
             }
             sectors_count = geometry.sector_count;
@@ -305,6 +336,7 @@ static int _dfs_filex_exfat_mkfs(rt_device_t dev_id)
             break;
         }
     default:
+        filex_unlock();
         return -EINVAL;
     }
     filex_media = _filex_get_media(dev_id);
@@ -313,6 +345,7 @@ static int _dfs_filex_exfat_mkfs(rt_device_t dev_id)
         filex_media = malloc(sizeof(filex_media_t));
         if(filex_media == NULL) 
         {
+            filex_unlock();
             return -ENOMEM;
         }
         rt_list_insert_before(&filex_media_list, &filex_media->list);
@@ -337,6 +370,7 @@ static int _dfs_filex_exfat_mkfs(rt_device_t dev_id)
         /* Error, break the loop!  */
         rt_list_remove(&filex_media->list);
         free(filex_media);
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 
@@ -351,7 +385,7 @@ static int _dfs_filex_exfat_mkfs(rt_device_t dev_id)
             free(filex_media);
         }
 #endif /* FX_ENABLE_FAULT_TOLERANT */
-    
+    filex_unlock();
     return _filex_result_to_dfs(result);
     
 }
@@ -369,18 +403,19 @@ static int _dfs_filex_statfs(struct dfs_filesystem* dfs, struct statfs* buf)
     RT_ASSERT(dfs->data != RT_NULL);
 
     filex_media = (filex_media_t*)dfs->data;
-
+    filex_lock();
     result = fx_media_extended_space_available(&filex_media->media, &available_bytes);
 
     if (result != FX_SUCCESS)
     {
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 
     buf->f_bsize = filex_media->media.fx_media_bytes_per_sector;
     buf->f_blocks = filex_media->media.fx_media_total_sectors;
     buf->f_bfree = available_bytes / buf->f_bsize;
-
+    filex_unlock();
     return _filex_result_to_dfs(result);
 }
 
@@ -393,13 +428,14 @@ static int _dfs_filex_unlink(struct dfs_filesystem* dfs, const char* path)
     RT_ASSERT(dfs->data != RT_NULL);
 
     filex_media = (filex_media_t*)dfs->data;
+    filex_lock();
 
     result = fx_file_delete(&filex_media->media, (char *)path);
     if(result == FX_NOT_A_FILE)
     {
         result = fx_directory_delete(&filex_media->media, (char *)path);
     }
-
+    filex_unlock();
     return _filex_result_to_dfs(result);
 }
 
@@ -414,13 +450,16 @@ static int _dfs_filex_stat(struct dfs_filesystem* dfs, const char* path, struct 
     RT_ASSERT(st != RT_NULL);
 
     filex_media = (filex_media_t*)dfs->data;
-
+    filex_lock();
+    dir_entry.fx_dir_entry_name = filex_media->media.fx_media_name_buffer + FX_MAX_LONG_NAME_LEN;
+    dir_entry.fx_dir_entry_short_name[0] = 0;
     result =  _fx_directory_search(&filex_media->media, (char *)path, &dir_entry, FX_NULL, FX_NULL);
 
     /* Determine if the search was successful.  */
     if (result != FX_SUCCESS)
     {
         /* Return the error code.  */
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 
@@ -444,7 +483,8 @@ static int _dfs_filex_stat(struct dfs_filesystem* dfs, const char* path, struct 
     st->st_atime =dir_entry.fx_dir_entry_last_accessed_date;
     st->st_mtime = dir_entry.fx_dir_entry_time;
     st->st_ctime = st->st_mtime;
-    
+
+    filex_unlock();
     return _filex_result_to_dfs(FX_SUCCESS);
 }
 
@@ -457,13 +497,13 @@ static int _dfs_filex_rename(struct dfs_filesystem* dfs, const char* from, const
     RT_ASSERT(dfs->data != RT_NULL);
 
     filex_media = (filex_media_t*)dfs->data;
-
+    filex_lock();
     result = fx_directory_rename(&filex_media->media, (char *)from, (char *)to);
     if(result == FX_NOT_DIRECTORY)
     {
         result = fx_file_rename(&filex_media->media, (char *)from, (char *)to);
     }
-
+    filex_unlock();
     return _filex_result_to_dfs(result);
 }
 
@@ -482,7 +522,7 @@ static int _dfs_filex_open(struct dfs_fd* file)
 
     dfs = (struct dfs_filesystem*)file->data;
     filex_media = (filex_media_t*)dfs->data;
-
+    filex_lock();
     if (file->flags & O_DIRECTORY)
     {
         filex_dir_t *dir_entry = malloc(sizeof(filex_dir_t));
@@ -491,10 +531,17 @@ static int _dfs_filex_open(struct dfs_fd* file)
         {
             rt_kprintf("ERROR:no memory!\n");
             result = -ENOMEM;
-
             goto _error_dir;
         }
         dir_entry->media = &filex_media->media;
+        if(strcmp(file->path, "/") == 0 || strcmp(file->path, "\\") == 0)
+        {
+            dir_entry->is_root = 1;
+            file->data = (void*)dir_entry;
+            filex_unlock();
+            return _filex_result_to_dfs(FX_SUCCESS);
+        }
+        dir_entry->is_root = 0;
         if (file->flags & O_CREAT)
         {
             result = fx_directory_create(&filex_media->media, file->path);
@@ -502,7 +549,10 @@ static int _dfs_filex_open(struct dfs_fd* file)
             {
                 goto _error_dir;
             }
+            fx_media_flush(&filex_media->media);
         }
+        dir_entry->entry.fx_dir_entry_name = dir_entry->name_buffer;
+        dir_entry->entry.fx_dir_entry_short_name[0] = 0;
         result =  _fx_directory_search(&filex_media->media, file->path, &dir_entry->entry, FX_NULL, FX_NULL);
 
         /* Determine if the search was successful.  */
@@ -514,6 +564,7 @@ static int _dfs_filex_open(struct dfs_fd* file)
         else
         {
             file->data = (void*)dir_entry;
+            filex_unlock();
             return _filex_result_to_dfs(result);
         }
 
@@ -522,6 +573,8 @@ static int _dfs_filex_open(struct dfs_fd* file)
         {
             free(dir_entry);
         }
+        file->data = NULL;
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
     else
@@ -578,6 +631,7 @@ static int _dfs_filex_open(struct dfs_fd* file)
             file->data = (void*)file_entry;
             file->pos = file_entry->fx_file_current_file_offset;
             file->size = file_entry->fx_file_current_file_size;
+            filex_unlock();
             return _filex_result_to_dfs(result);
         }
 
@@ -586,33 +640,43 @@ static int _dfs_filex_open(struct dfs_fd* file)
         {
             free(file_entry);
         }
+        file->data = NULL;
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 }
 
 static int _dfs_filex_close(struct dfs_fd* file)
 {
-    int result;
+    int result = FX_SUCCESS;
     RT_ASSERT(file != RT_NULL);
-    RT_ASSERT(file->data != RT_NULL);
 
     if (file->type == FT_DIRECTORY)
     {
-        free(file->data);
-        file->data = NULL;
+        if(file->data != NULL)
+        {
+            free(file->data);
+            file->data = NULL;
+        }
         result = FX_SUCCESS;
     }
     else
     {
         FX_FILE* file_entry = (FX_FILE*)file->data;
-        result = fx_file_close(file_entry);
-        if(result == FX_SUCCESS)
+        filex_lock();
+        if(file_entry != NULL)
         {
-            free(file->data);
-            file->data = NULL;
+            result = fx_file_close(file_entry);
+            if(result == FX_SUCCESS)
+            {
+                free(file->data);
+                file->data = NULL;
+            }
+            fx_media_flush(file_entry->fx_file_media_ptr);
         }
+        filex_unlock();
     }
-
+    
     return _filex_result_to_dfs(result);
 }
 
@@ -635,15 +699,17 @@ static int _dfs_filex_read(struct dfs_fd* file, void* buf, size_t len)
     {
         return -EISDIR;
     }
+    filex_lock();
     result = fx_file_read(file_entry, buf, len, &actual_size);
     if (result != FX_SUCCESS)
     {
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 
     /* update position */
     file->pos = file_entry->fx_file_current_file_offset;
-
+    filex_unlock();
     return actual_size;
 }
 
@@ -659,18 +725,19 @@ static int _dfs_filex_write(struct dfs_fd* file, const void* buf, size_t len)
     {
         return -EISDIR;
     }
-
+    filex_lock();
     result = fx_file_write(file_entry, (void *)buf, len);
 
     if (result != FX_SUCCESS)
     {
+        filex_unlock();
         return _filex_result_to_dfs(result);
     }
 
     /* update position and file size */
     file->pos = file_entry->fx_file_current_file_offset;
     file->size = file_entry->fx_file_current_file_size;
-
+    filex_unlock();
     return len;
 }
 
@@ -681,10 +748,10 @@ static int _dfs_filex_flush(struct dfs_fd* file)
 
     RT_ASSERT(file != RT_NULL);
     RT_ASSERT(file->data != RT_NULL);
-
+    filex_lock();
     result = fx_media_flush(file_entry->fx_file_media_ptr);
 
-
+    filex_unlock();
     return _filex_result_to_dfs(result);
 }
 
@@ -693,13 +760,14 @@ static int _dfs_filex_lseek(struct dfs_fd* file, rt_off_t offset)
     int result;
     RT_ASSERT(file != RT_NULL);
     RT_ASSERT(file->data != RT_NULL);
-
+    filex_lock();
     if (file->type == FT_REGULAR)
     {
         FX_FILE* file_entry = (FX_FILE*)file->data;
         result = fx_file_seek(file_entry, offset);
         if (result != FX_SUCCESS)
         {
+            filex_unlock();
             return _filex_result_to_dfs(result);
         }
 
@@ -709,7 +777,7 @@ static int _dfs_filex_lseek(struct dfs_fd* file, rt_off_t offset)
     {
         file->pos = offset;
     }
-
+    filex_unlock();
     return (file->pos);
 }
 
@@ -718,10 +786,12 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
     filex_dir_t *dir_entry;
     int result;
     ULONG index;
+    ULONG offset;
     struct dirent* d;
     FX_DIR_ENTRY dest_entry;
 
     RT_ASSERT(file->data != RT_NULL);
+    
 
     dir_entry = (filex_dir_t*)(file->data);
 
@@ -731,15 +801,27 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
     {
         return -EINVAL;
     }
+    filex_lock();
+    offset = file->pos / sizeof(struct dirent);
 
-    index = file->pos / sizeof(struct dirent);
+    index = 0;
     while (1)
     {
         d = dirp + index;
         
-        
-        result = _fx_directory_entry_read(dir_entry->media, &dir_entry->entry, &index, &dest_entry);
-        if ((result != FX_SUCCESS) || (dest_entry.fx_dir_entry_name[0] == 0))
+        dest_entry.fx_dir_entry_name = dir_entry->media->fx_media_name_buffer + FX_MAX_LONG_NAME_LEN;
+        dest_entry.fx_dir_entry_short_name[0] = 0;
+        result = _fx_directory_entry_read(dir_entry->media, dir_entry->is_root ? NULL : &dir_entry->entry, &offset, &dest_entry);
+        if (result != FX_SUCCESS)
+        {
+            break;
+        }
+
+#ifdef FX_ENABLE_EXFAT
+        if (dest_entry.fx_dir_entry_type == FX_EXFAT_DIR_ENTRY_TYPE_END_MARKER)
+#else
+        if ((UCHAR)dest_entry.fx_dir_entry_name[0] == (UCHAR)FX_DIR_ENTRY_DONE)
+#endif /* FX_ENABLE_EXFAT */
         {
             break;
         }
@@ -770,20 +852,16 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
         strncpy(d->d_name, dest_entry.fx_dir_entry_name, d->d_namlen + 1);
 
         index++;
+        offset++;
         if (index * sizeof(struct dirent) >= count)
         {
             break;
         }
     }
 
-    if (index == file->pos)
-    {
-        return _filex_result_to_dfs(result);
-    }
-
-    file->pos += index * sizeof(struct dirent);
-
-    return count * sizeof(struct dirent);
+    file->pos = offset * sizeof(struct dirent);
+    filex_unlock();
+    return index * sizeof(struct dirent);
 }
 
 static const struct dfs_file_ops _dfs_filex_fops = {
@@ -831,6 +909,8 @@ static const struct dfs_filesystem_ops _dfs_filex_exfat_ops = {
 
 int dfs_filex_init(void)
 {
+    lock = rt_mutex_create("filex", RT_IPC_FLAG_FIFO);
+    RT_ASSERT(lock);
 #ifdef FX_ENABLE_EXFAT
     dfs_register(&_dfs_filex_exfat_ops);
 #endif
