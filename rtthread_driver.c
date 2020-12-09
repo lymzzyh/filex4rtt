@@ -1,11 +1,13 @@
 #include "fx_api.h"
 #include "rtthread.h"
-
+#include "rtdevice.h"
 static size_t rt_disk_erase(rt_device_t disk_dev, off_t block_off, size_t number_of_block)
 {
     size_t size;
     switch (disk_dev->type)
     {
+    
+#ifdef RT_MTD_NOR_DEVICE
     case RT_Device_Class_MTD:
         size = number_of_block * RT_MTD_NOR_DEVICE(disk_dev)->block_size;
         if(size != rt_mtd_nor_erase_block(RT_MTD_NOR_DEVICE(disk_dev), block_off * RT_MTD_NOR_DEVICE(disk_dev)->block_size, size))
@@ -13,6 +15,7 @@ static size_t rt_disk_erase(rt_device_t disk_dev, off_t block_off, size_t number
             return 0;
         }
         return number_of_block;
+#endif
     case RT_Device_Class_Block:
         return number_of_block;
     default:
@@ -25,6 +28,7 @@ static size_t rt_disk_write(rt_device_t disk_dev, off_t block_off, size_t number
     size_t size;
     switch (disk_dev->type)
     {
+#ifdef RT_MTD_NOR_DEVICE
     case RT_Device_Class_MTD:
         size = number_of_block * RT_MTD_NOR_DEVICE(disk_dev)->block_size;
         if(number_of_block != rt_disk_erase(disk_dev, block_off, number_of_block))
@@ -36,6 +40,7 @@ static size_t rt_disk_write(rt_device_t disk_dev, off_t block_off, size_t number
             return 0;
         }
         return number_of_block;
+#endif
     case RT_Device_Class_Block:
         return rt_device_write(disk_dev, block_off, buffer, number_of_block);
     default:
@@ -43,11 +48,12 @@ static size_t rt_disk_write(rt_device_t disk_dev, off_t block_off, size_t number
     }
 }
 
-static size_t rt_disk_read(rt_device_t disk_dev, off_t block_off, size_t number_of_block, const void * buffer)
+static size_t rt_disk_read(rt_device_t disk_dev, off_t block_off, size_t number_of_block, void * buffer)
 {
     size_t size;
     switch (disk_dev->type)
     {
+#ifdef RT_MTD_NOR_DEVICE
     case RT_Device_Class_MTD:
         size = number_of_block * RT_MTD_NOR_DEVICE(disk_dev)->block_size;
         if(size != rt_mtd_nor_read(RT_MTD_NOR_DEVICE(disk_dev), block_off * RT_MTD_NOR_DEVICE(disk_dev)->block_size, buffer, size))
@@ -55,6 +61,7 @@ static size_t rt_disk_read(rt_device_t disk_dev, off_t block_off, size_t number_
             return 0;
         }
         return number_of_block;
+#endif
     case RT_Device_Class_Block:
         return rt_device_read(disk_dev, block_off, buffer, number_of_block);
     default:

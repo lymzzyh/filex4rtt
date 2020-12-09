@@ -241,6 +241,8 @@ filex/common/src/fxe_unicode_name_get.c
 filex/common/src/fxe_unicode_name_get_extended.c
 filex/common/src/fxe_unicode_short_name_get.c
 filex/common/src/fxe_unicode_short_name_get_extended.c
+dfs_filex.c
+rtthread_driver.c
 ''')
 CPPPATH = [cwd, cwd + '/filex/common/inc']
 LOCAL_CCFLAGS = ''

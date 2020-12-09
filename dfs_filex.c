@@ -27,14 +27,14 @@ typedef struct filex_media {
 
 typedef struct filex_dir {
     FX_DIR_ENTRY entry;
-    filex_media_t * media;
+    FX_MEDIA * media;
 } filex_dir_t;
 
 rt_list_t filex_media_list;
 
 static filex_media_t * _filex_get_media(rt_device_t dev_id)
 {
-    list_t * entry;
+    rt_list_t * entry;
     filex_media_t * media;
     for(entry = filex_media_list.next; entry->next != &filex_media_list; entry = entry->next) 
     {
@@ -59,10 +59,6 @@ static int _filex_result_to_dfs(int result)
     case FX_IO_ERROR:
         status = -EIO;
         break; // Error during device operation
-
-    case FX_NOT_DIRECTORY:
-        status = -ENOENT;
-        break; // No directory entry
 
     case FX_ALREADY_CREATED:
         status = -EEXIST;
@@ -174,6 +170,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
     uint32_t sectors_begin;
     uint32_t sectors_size;
     filex_media_t * filex_media;
+    int result;
     if(dev_id == RT_NULL)
     {
         rt_kprintf("dev_id is NULL %s,%d\n", __func__, __LINE__);
@@ -397,10 +394,10 @@ static int _dfs_filex_unlink(struct dfs_filesystem* dfs, const char* path)
 
     filex_media = (filex_media_t*)dfs->data;
 
-    result = fx_file_delete(&filex_media->media, path);
+    result = fx_file_delete(&filex_media->media, (char *)path);
     if(result == FX_NOT_A_FILE)
     {
-        result = fx_directory_delete(&filex_media->media, path);
+        result = fx_directory_delete(&filex_media->media, (char *)path);
     }
 
     return _filex_result_to_dfs(result);
@@ -418,7 +415,7 @@ static int _dfs_filex_stat(struct dfs_filesystem* dfs, const char* path, struct 
 
     filex_media = (filex_media_t*)dfs->data;
 
-    result =  _fx_directory_search(&filex_media->media, path, &dir_entry, FX_NULL, FX_NULL);
+    result =  _fx_directory_search(&filex_media->media, (char *)path, &dir_entry, FX_NULL, FX_NULL);
 
     /* Determine if the search was successful.  */
     if (result != FX_SUCCESS)
@@ -461,10 +458,10 @@ static int _dfs_filex_rename(struct dfs_filesystem* dfs, const char* from, const
 
     filex_media = (filex_media_t*)dfs->data;
 
-    result = fx_directory_rename(&filex_media->media, from, to);
+    result = fx_directory_rename(&filex_media->media, (char *)from, (char *)to);
     if(result == FX_NOT_DIRECTORY)
     {
-        result = fx_file_rename(&filex_media->media, from, to);
+        result = fx_file_rename(&filex_media->media, (char *)from, (char *)to);
     }
 
     return _filex_result_to_dfs(result);
@@ -497,7 +494,7 @@ static int _dfs_filex_open(struct dfs_fd* file)
 
             goto _error_dir;
         }
-
+        dir_entry->media = &filex_media->media;
         if (file->flags & O_CREAT)
         {
             result = fx_directory_create(&filex_media->media, file->path);
@@ -506,7 +503,7 @@ static int _dfs_filex_open(struct dfs_fd* file)
                 goto _error_dir;
             }
         }
-        result =  _fx_directory_search(&filex_media->media, path, &dir_entry->entry, FX_NULL, FX_NULL);
+        result =  _fx_directory_search(&filex_media->media, file->path, &dir_entry->entry, FX_NULL, FX_NULL);
 
         /* Determine if the search was successful.  */
         if (result != FX_SUCCESS)
@@ -628,7 +625,7 @@ static int _dfs_filex_read(struct dfs_fd* file, void* buf, size_t len)
 {
     FX_FILE* file_entry = (FX_FILE*)file->data;
     int result;
-    int actual_size;
+    ULONG actual_size;
 
     RT_ASSERT(file != RT_NULL);
     RT_ASSERT(file->data != RT_NULL);
@@ -663,7 +660,7 @@ static int _dfs_filex_write(struct dfs_fd* file, const void* buf, size_t len)
         return -EISDIR;
     }
 
-    result = fx_file_write(file_entry, buf, len);
+    result = fx_file_write(file_entry, (void *)buf, len);
 
     if (result != FX_SUCCESS)
     {
@@ -718,9 +715,9 @@ static int _dfs_filex_lseek(struct dfs_fd* file, rt_off_t offset)
 
 static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_t count)
 {
-    filex_dir_t *dir_entry
+    filex_dir_t *dir_entry;
     int result;
-    int index;
+    ULONG index;
     struct dirent* d;
     FX_DIR_ENTRY dest_entry;
 
@@ -741,7 +738,7 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
         d = dirp + index;
         
         
-        result = _fx_directory_entry_read(dir_entry->media, &dir_entry->entry, index, &dest_entry);
+        result = _fx_directory_entry_read(dir_entry->media, &dir_entry->entry, &index, &dest_entry);
         if ((result != FX_SUCCESS) || (dest_entry.fx_dir_entry_name[0] == 0))
         {
             break;
@@ -781,7 +778,7 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
 
     if (index == file->pos)
     {
-        return _lfs_result_to_dfs(result);
+        return _filex_result_to_dfs(result);
     }
 
     file->pos += index * sizeof(struct dirent);
@@ -832,7 +829,7 @@ static const struct dfs_filesystem_ops _dfs_filex_exfat_ops = {
 
 #endif
 
-int dfs_lfs_init(void)
+int dfs_filex_init(void)
 {
 #ifdef FX_ENABLE_EXFAT
     dfs_register(&_dfs_filex_exfat_ops);
@@ -841,4 +838,4 @@ int dfs_lfs_init(void)
     /* register ram file system */
     return dfs_register(&_dfs_filex_fat_ops);
 }
-INIT_COMPONENT_EXPORT(dfs_lfs_init);
+INIT_COMPONENT_EXPORT(dfs_filex_init);
