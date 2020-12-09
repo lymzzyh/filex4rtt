@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <string.h>
 
+extern VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr);
+
 #ifndef FLIEX_MEDIA_MEMORY_SIZE
 #define FLIEX_MEDIA_MEMORY_SIZE 512     /* Size */
 #endif /* FLIEX_MEDIA_MEMORY_SIZE */

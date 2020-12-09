@@ -61,7 +61,6 @@
    here by commenting or un-commenting the conditional compilation defined OR supply the defines
    though the compiler's equivalent of the -D option.  */
 
-extern VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr);
 /* Override various options with default values already assigned in fx_api.h or fx_port.h. Please
    also refer to fx_port.h for descriptions on each of these options.  */
 
@@ -104,8 +103,9 @@ extern VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr);
 
 /* Defined, FileX is built without update to the time parameters.  */
 
-/*#define FX_NO_TIMER  */
+#define FX_NO_TIMER
 
+#define FX_LEGACY_INTERRUPT_PROTECTION
 
 /* Defined, FileX does not update already opened files.  */
 
@@ -139,7 +139,7 @@ extern VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr);
 
 /* Defined, local path logic is disabled.  */
 
-/*#define FX_NO_LOCAL_PATH   */
+#define FX_NO_LOCAL_PATH
 
 
 /* Defined, FileX is able to access exFAT file system. 

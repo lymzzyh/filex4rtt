@@ -73,6 +73,17 @@
 typedef unsigned long long  ULONG64;
 #endif
 
+typedef unsigned long ULONG;
+typedef unsigned int  UINT;
+typedef char CHAR;
+typedef unsigned char UCHAR;
+typedef void VOID;
+typedef unsigned long ALIGN_TYPE;
+typedef int INT;
+
+#ifndef TX_TRUE
+#define TX_TRUE   1
+#endif
 
 /* Define FileX internal protection macros.  If FX_SINGLE_THREAD is defined,
    these protection macros are effectively disabled.  However, for multi-thread
