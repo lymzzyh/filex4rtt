@@ -14,18 +14,18 @@ extern VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr);
 
 static rt_mutex_t lock = NULL;
 
-static inline filex_lock(void)
+static inline void filex_lock(void)
 {
     rt_mutex_take(lock, RT_WAITING_FOREVER);
 }
 
-static inline filex_unlock(void)
+static inline void filex_unlock(void)
 {
     rt_mutex_release(lock);
 }
 
 #ifndef FLIEX_MEDIA_MEMORY_SIZE
-#define FLIEX_MEDIA_MEMORY_SIZE 512     /* Size */
+#define FLIEX_MEDIA_MEMORY_SIZE 4096     /* Size */
 #endif /* FLIEX_MEDIA_MEMORY_SIZE */
 
 typedef struct filex_media {
@@ -209,7 +209,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
     {
 #ifdef RT_MTD_NOR_DEVICE
     case RT_Device_Class_MTD:
-        sectors_count = RT_MTD_NOR_DEVICE(dev_id)->block_start - RT_MTD_NOR_DEVICE(dev_id)->block_end;
+        sectors_count = RT_MTD_NOR_DEVICE(dev_id)->block_end - RT_MTD_NOR_DEVICE(dev_id)->block_start;
         sectors_begin = RT_MTD_NOR_DEVICE(dev_id)->block_start;
         sectors_size = RT_MTD_NOR_DEVICE(dev_id)->block_size;
         break;
@@ -247,7 +247,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
         }
         rt_list_insert_before(&filex_media_list, &filex_media->list);
     }
-    
+
     result = fx_media_format(&filex_media->media,
                     rt_fx_disk_driver,               // Driver entry
                     dev_id,              // RAM disk memory pointer
@@ -259,7 +259,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
                     sectors_begin,                            // Hidden sectors
                     sectors_count,                          // Total sectors
                     sectors_size,                          // Sector size
-                    8,                            // Sectors per cluster
+                    4096 / sectors_size,                            // Sectors per cluster
                     1,                            // Heads
                     1);                           // Sectors per track
 
@@ -554,7 +554,6 @@ static int _dfs_filex_open(struct dfs_fd* file)
         dir_entry->entry.fx_dir_entry_name = dir_entry->name_buffer;
         dir_entry->entry.fx_dir_entry_short_name[0] = 0;
         result =  _fx_directory_search(&filex_media->media, file->path, &dir_entry->entry, FX_NULL, FX_NULL);
-
         /* Determine if the search was successful.  */
         if (result != FX_SUCCESS)
         {
@@ -697,14 +696,14 @@ static int _dfs_filex_read(struct dfs_fd* file, void* buf, size_t len)
 
     if (file->type == FT_DIRECTORY)
     {
-        return -EISDIR;
+        return 0;
     }
     filex_lock();
     result = fx_file_read(file_entry, buf, len, &actual_size);
     if (result != FX_SUCCESS)
     {
         filex_unlock();
-        return _filex_result_to_dfs(result);
+        return 0;
     }
 
     /* update position */
@@ -723,7 +722,7 @@ static int _dfs_filex_write(struct dfs_fd* file, const void* buf, size_t len)
 
     if (file->type == FT_DIRECTORY)
     {
-        return -EISDIR;
+        return 0;
     }
     filex_lock();
     result = fx_file_write(file_entry, (void *)buf, len);
@@ -731,7 +730,7 @@ static int _dfs_filex_write(struct dfs_fd* file, const void* buf, size_t len)
     if (result != FX_SUCCESS)
     {
         filex_unlock();
-        return _filex_result_to_dfs(result);
+        return 0;
     }
 
     /* update position and file size */
@@ -805,11 +804,12 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
     offset = file->pos / sizeof(struct dirent);
 
     index = 0;
+    dest_entry.fx_dir_entry_name = malloc(FX_MAX_LONG_NAME_LEN);
+    RT_ASSERT(dest_entry.fx_dir_entry_name);
     while (1)
     {
         d = dirp + index;
-        
-        dest_entry.fx_dir_entry_name = dir_entry->media->fx_media_name_buffer + FX_MAX_LONG_NAME_LEN;
+
         dest_entry.fx_dir_entry_short_name[0] = 0;
         result = _fx_directory_entry_read(dir_entry->media, dir_entry->is_root ? NULL : &dir_entry->entry, &offset, &dest_entry);
         if (result != FX_SUCCESS)
@@ -824,15 +824,6 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
 #endif /* FX_ENABLE_EXFAT */
         {
             break;
-        }
-
-        if (rt_strcmp(dest_entry.fx_dir_entry_name, ".") == 0)
-        {
-            continue;
-        }
-        else if (rt_strcmp(dest_entry.fx_dir_entry_name, "..") == 0)
-        {
-            continue;
         }
 
         d->d_type = DT_UNKNOWN;
@@ -860,6 +851,7 @@ static int _dfs_filex_getdents(struct dfs_fd* file, struct dirent* dirp, uint32_
     }
 
     file->pos = offset * sizeof(struct dirent);
+    free(dest_entry.fx_dir_entry_name);
     filex_unlock();
     return index * sizeof(struct dirent);
 }
@@ -910,6 +902,7 @@ static const struct dfs_filesystem_ops _dfs_filex_exfat_ops = {
 int dfs_filex_init(void)
 {
     lock = rt_mutex_create("filex", RT_IPC_FLAG_FIFO);
+    fx_system_initialize();
     RT_ASSERT(lock);
 #ifdef FX_ENABLE_EXFAT
     dfs_register(&_dfs_filex_exfat_ops);

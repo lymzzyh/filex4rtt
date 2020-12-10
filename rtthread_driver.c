@@ -1,6 +1,7 @@
 #include "fx_api.h"
 #include "rtthread.h"
 #include "rtdevice.h"
+#include <stdio.h>
 static size_t rt_disk_erase(rt_device_t disk_dev, off_t block_off, size_t number_of_block)
 {
     size_t size;
@@ -11,7 +12,7 @@ static size_t rt_disk_erase(rt_device_t disk_dev, off_t block_off, size_t number
 #ifdef RT_MTD_NOR_DEVICE
     case RT_Device_Class_MTD:
         size = number_of_block * RT_MTD_NOR_DEVICE(disk_dev)->block_size;
-        if(size != rt_mtd_nor_erase_block(RT_MTD_NOR_DEVICE(disk_dev), block_off * RT_MTD_NOR_DEVICE(disk_dev)->block_size, size))
+        if(RT_EOK != rt_mtd_nor_erase_block(RT_MTD_NOR_DEVICE(disk_dev), block_off * RT_MTD_NOR_DEVICE(disk_dev)->block_size, size))
         {
             return 0;
         }
@@ -246,7 +247,7 @@ VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr)
         /* Read the boot record and return to the caller.  */
 
         media_ptr -> fx_media_driver_status =  FX_SUCCESS;
-        if(rt_disk_read(disk_dev, 0, media_ptr->fx_media_driver_buffer, media_ptr->fx_media_driver_sectors) != media_ptr->fx_media_driver_sectors)
+        if(rt_disk_read(disk_dev, 0, media_ptr->fx_media_driver_buffer, 1) != 1)
         {
             media_ptr -> fx_media_driver_status = FX_IO_ERROR;
         }
@@ -257,7 +258,7 @@ VOID  rt_fx_disk_driver(FX_MEDIA *media_ptr)
     {
 
         media_ptr -> fx_media_driver_status =  FX_SUCCESS;
-        if(rt_disk_write(disk_dev, 0, media_ptr->fx_media_driver_buffer, media_ptr->fx_media_driver_sectors) != media_ptr->fx_media_driver_sectors)
+        if(rt_disk_write(disk_dev, 0, media_ptr->fx_media_driver_buffer, 1) != 1)
         {
             media_ptr -> fx_media_driver_status = FX_IO_ERROR;
         }
