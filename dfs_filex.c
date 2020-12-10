@@ -134,7 +134,7 @@ static int _dfs_filex_mount(struct dfs_filesystem* dfs, unsigned long rwflag, co
     filex_media = _filex_get_media(dev_id);
     if(filex_media == NULL)
     {
-        filex_media = malloc(sizeof(filex_media_t));
+        filex_media = calloc(sizeof(filex_media_t), 1);
         if(filex_media == NULL) 
         {
             return -ENOMEM;
@@ -239,7 +239,7 @@ static int _dfs_filex_fat_mkfs(rt_device_t dev_id)
     filex_media = _filex_get_media(dev_id);
     if(filex_media == NULL)
     {
-        filex_media = malloc(sizeof(filex_media_t));
+        filex_media = calloc(sizeof(filex_media_t), 1);
         if(filex_media == NULL) 
         {
             filex_unlock();
@@ -342,7 +342,7 @@ static int _dfs_filex_exfat_mkfs(rt_device_t dev_id)
     filex_media = _filex_get_media(dev_id);
     if(filex_media == NULL)
     {
-        filex_media = malloc(sizeof(filex_media_t));
+        filex_media = calloc(sizeof(filex_media_t), 1);
         if(filex_media == NULL) 
         {
             filex_unlock();
@@ -525,7 +525,7 @@ static int _dfs_filex_open(struct dfs_fd* file)
     filex_lock();
     if (file->flags & O_DIRECTORY)
     {
-        filex_dir_t *dir_entry = malloc(sizeof(filex_dir_t));
+        filex_dir_t *dir_entry = calloc(sizeof(filex_dir_t), 1);
 
         if (dir_entry == NULL)
         {
@@ -578,7 +578,7 @@ static int _dfs_filex_open(struct dfs_fd* file)
     }
     else
     {
-        FX_FILE* file_entry = malloc(sizeof(FX_FILE));
+        FX_FILE* file_entry = calloc(sizeof(FX_FILE), 1);
         if (file_entry == RT_NULL)
         {
             rt_kprintf("ERROR:no memory!\n");
